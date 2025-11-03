@@ -1,13 +1,24 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart'; // New Import!
 import 'list.dart';
 import 'add_to_list.dart';
-
-void main() {
-  runApp(const MyApp()); 
-}
+import 'todo_provider.dart'; // New Import!
 
 const kTodoHome = '/';
-const kTodoAdd = '/second'; 
+const kTodoAdd = '/second';
+const kRegistration = '/register';
+
+void main() {
+  // 1. Wrap the entire application with the ChangeNotifierProvider
+  runApp(
+    ChangeNotifierProvider(
+      create: (context) => TodoProvider(),
+      child: const MyApp(), 
+    )
+  ); 
+}
+
+// ... (kTodoHome and kTodoAdd constants remain the same)
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
@@ -17,56 +28,31 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       initialRoute: kTodoHome,
       routes: {
-        kTodoHome: (context) => const TodoHome(), // Add const to the constructor call
-        kTodoAdd: (context) => const TodoAdd(),   // Add const to the constructor call
+        kTodoHome: (context) => const TodoHome(),
+        kTodoAdd: (context) => const TodoAdd(),
       },
     );
   }
 }
 
-class TodoHome extends StatefulWidget {
+// 2. Refactor TodoHome to be a StatelessWidget 
+//    and load the API key on startup.
+class TodoHome extends StatelessWidget {
   const TodoHome({super.key});
 
-  @override
-  State<TodoHome> createState() => _TodoHomeState();
-}
-
-class _TodoHomeState extends State<TodoHome> {
-  final List<String> _todoItems = [
-    'Write a book',
-    'Do homework', 
-    'Tidy room',
-    'Watch TV',
-    'Nap',
-    'Shop Groceries',
-    'Have fun',
-    'Meditate'
-  ];
-
-  void _removeTodoItem(int index) {
-    setState(() {
-      _todoItems.removeAt(index);
-    });
-  }
-
-  // 2. Asynchronous function to handle navigation and result
-  void _navigateToAddTodoScreen() async {
-    // 3. Navigate and AWAIT the result (the string returned by Navigator.pop)
-    // We use 'as String?' to correctly cast the result.
-    final String? newTask = await Navigator.pushNamed(context, kTodoAdd) as String?;
-
-    // The screen only shifts back to TodoHome AFTER Navigator.pop is called in TodoAdd.
-
-    // 4. Check if a valid string was returned
-    if (newTask != null && newTask.isNotEmpty) {
-      setState(() {
-        _todoItems.add(newTask); // 5. Add the new task to the list
-      });
-    }
-  }
-
+  // Since we need to run an async operation (loadApiKey), 
+  // we'll use a StatefulWidget temporarily or call it in an init state.
+  // The simplest way to refactor for now is to move the logic out.
   @override
   Widget build(BuildContext context) {
+    // Access the provider instance
+    final todoProvider = Provider.of<TodoProvider>(context, listen: false);
+
+    // Load API key once when the widget is built for the first time
+    // We call loadApiKey() on every build for simplicity, but it's okay
+    // since the key persistence is fast and idempotent.
+    todoProvider.loadApiKey(); 
+
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.orangeAccent,
@@ -76,7 +62,7 @@ class _TodoHomeState extends State<TodoHome> {
           PopupMenuButton (
             icon: const Icon(Icons.more_vert),
             onSelected: (String result){
-
+              // TODO: Logic for filtering will go here
             },
             itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
               const PopupMenuItem<String>(
@@ -95,12 +81,18 @@ class _TodoHomeState extends State<TodoHome> {
           )
         ],
       ),
-      body: InteractiveList(
-        items: _todoItems,
-        onRemove: _removeTodoItem,
+      body: Consumer<TodoProvider>( // 3. Use Consumer to listen for changes
+        builder: (context, provider, child) {
+          // The body rebuilds ONLY when the provider calls notifyListeners()
+          return InteractiveList(
+            items: provider.todoItems,
+            onRemove: provider.removeTodoItem,
+          );
+        },
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: _navigateToAddTodoScreen, 
+        // Use the provider's navigation handler
+        onPressed: () => _navigateToAddTodoScreen(context, todoProvider), 
         foregroundColor: Colors.amberAccent,
         backgroundColor: Colors.grey,
         child: const Icon(Icons.add),
@@ -108,3 +100,20 @@ class _TodoHomeState extends State<TodoHome> {
     );
   }
 }
+
+// Move the navigation logic out of the State class
+void _navigateToAddTodoScreen(BuildContext context, TodoProvider provider) async {
+  // Navigate and AWAIT the result (the string returned by Navigator.pop)
+  final String? newTask = await Navigator.pushNamed(context, kTodoAdd) as String?;
+
+  // Check if a valid string was returned
+  if (newTask != null && newTask.isNotEmpty) {
+    // 4. Call the Provider's method to add the task
+    provider.addTodoItem(newTask); 
+    // The provider handles calling notifyListeners()
+  }
+}
+
+// NOTE: The original _TodoHomeState class can now be completely removed.
+// You should also delete the unused TodoHome state and move the navigation 
+// function out of the class.
